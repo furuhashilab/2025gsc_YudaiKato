@@ -61,6 +61,11 @@ export default function Home() {
         してください。
       </p>
 
+      <p style={{ marginBottom: 16 }}>
+  <a href="/map" style={{ textDecoration: "underline" }}>地図を開く</a>
+</p>
+
+
       {/* ローディング */}
       {loading && (
         <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 8 }}>
