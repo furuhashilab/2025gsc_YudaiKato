@@ -141,6 +141,47 @@ function TrackCard({ item }: { item: RecentItem }) {
     .toString()
     .padStart(2, "0");
 
+  async function pinHere() {
+    if (!("geolocation" in navigator)) {
+      alert("このブラウザでは位置情報が使えません");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const body = {
+            spotify_track_id: item.spotify_track_id,
+            title: item.title,
+            artist: item.artist,
+            album_image_url: item.album_image_url,
+            played_at: item.played_at,
+            duration_ms: item.duration_ms,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+          const r = await fetch("/api/listens", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "保存に失敗しました");
+          alert("現在地にピンを保存しました！（/map で見られます）");
+        } catch (e: any) {
+          alert(e?.message ?? "保存に失敗しました");
+        }
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          alert("位置情報の許可が必要です");
+        } else {
+          alert("位置情報が取得できませんでした");
+        }
+      },
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  }
+
   return (
     <article
       style={{
@@ -181,7 +222,25 @@ function TrackCard({ item }: { item: RecentItem }) {
           再生: {playedLocal}（{durationMin}:{durationSec}）
         </p>
 
-        {/* 後で「現在地にピン」ボタンをここに追加予定（M5） */}
+        <div style={{ marginTop: 10 }}>
+          <button
+            onClick={pinHere}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+              background: "#f8fafc",
+              cursor: "pointer",
+              color: "#000",
+            }}
+            aria-label="この曲を現在地にピン"
+          >
+            現在地にピン
+          </button>
+          <a href="/map" style={{ marginLeft: 12, textDecoration: "underline" }}>
+            地図を開く
+          </a>
+        </div>
       </div>
     </article>
   );
