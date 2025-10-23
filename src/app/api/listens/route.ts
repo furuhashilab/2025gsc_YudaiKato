@@ -56,11 +56,34 @@ const charReplacements: Record<string, string> = {
 
 function sanitizeText(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const normalized = String(value).normalize("NFKC");
-  const replaced = Array.from(normalized)
-    .map((ch) => charReplacements[ch] ?? ch)
-    .join("");
-  return replaced.replace(/[^\x00-\x7F]/g, "").trim();
+  // 1) Unicode 正規化（互換：全角→半角など）
+  let s = String(value).normalize("NFKC");
+  // 2) 全角記号→半角置換
+  s = Array.from(s).map((ch) => charReplacements[ch] ?? ch).join("");
+  // 3) 制御文字（\t \r \n 以外）を除去
+  s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  // 4) ゼロ幅系を除去（ZWSP/ZWNJ/ZWJ/BOM）
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  // 5) 連続空白を1つに圧縮して前後をトリム
+  s = s.replace(/\s+/g, " ").trim();
+  // 6) 過剰入力防止のための上限
+  if (s.length > 512) s = s.slice(0, 512);
+  return s;
+}
+
+// URL 専用サニタイズ: http/https のみ許可。妥当でなければ null。
+function sanitizeUrl(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const s = sanitizeText(value);
+  try {
+    const u = new URL(s);
+    if (u.protocol === "http:" || u.protocol === "https:") {
+      return u.toString();
+    }
+  } catch {
+    // invalid URL
+  }
+  return null;
 }
 
 function sanitizePayloadDeep<T>(value: T): T {
@@ -165,10 +188,8 @@ export async function POST(req: NextRequest) {
   const cleanSpotifyId = sanitizeText(sanitizedBody.spotify_track_id);
   const cleanTitle = sanitizeText(sanitizedBody.title);
   const cleanArtist = sanitizeText(sanitizedBody.artist);
-  const cleanImage =
-    sanitizedBody.album_image_url === null || sanitizedBody.album_image_url === undefined
-      ? null
-      : sanitizeText(sanitizedBody.album_image_url);
+  // 画像 URL は http/https のみ許可。妥当でなければ null。
+  const cleanImage = sanitizeUrl(sanitizedBody.album_image_url);
 
   const trackUpsertPayload = {
     spotify_track_id: cleanSpotifyId,
@@ -177,6 +198,7 @@ export async function POST(req: NextRequest) {
     album_image_url: cleanImage,
   };
 
+  // TODO: ログが多い場合は後でフィルタリングを検討
   detectNonAscii(trackUpsertPayload, ["tracks"]);
 
   // 1) tracks を upsert（spotify_track_id で一意）
