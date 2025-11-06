@@ -134,7 +134,7 @@ export async function GET() {
     .from("listens")
     .select(
       `
-      id, played_at, lat, lng, duration_ms, created_at,
+      id, played_at, lat, lng, duration_ms, mood, mood_note, created_at,
       tracks:track_id (
         spotify_track_id, title, artist, album_image_url
       )
@@ -151,6 +151,8 @@ export async function GET() {
     lat: row.lat,
     lng: row.lng,
     duration_ms: row.duration_ms,
+    mood: row.mood ?? null,
+    mood_note: row.mood_note ?? null,
     title: row.tracks?.title ?? "",
     artist: row.tracks?.artist ?? "",
     album_image_url: row.tracks?.album_image_url ?? null,
@@ -191,6 +193,20 @@ export async function POST(req: NextRequest) {
   // 画像 URL は http/https のみ許可。妥当でなければ null。
   const cleanImage = sanitizeUrl(sanitizedBody.album_image_url);
 
+  // ★ mood と mood_note を定義（ASCIIラベルで管理）
+  const rawMood = sanitizeText((sanitizedBody as AnyObject).mood);
+  // 許容ラベル：happy / soso / sad / other
+  const allowed = new Set(["happy", "soso", "sad", "other"]);
+  const mood =
+    rawMood && allowed.has(rawMood) ? (rawMood as "happy" | "soso" | "sad" | "other") : null;
+
+  // other のときだけ自由記入を採用（空文字は null に）
+  let mood_note: string | null = null;
+  if (mood === "other") {
+    const note = sanitizeText((sanitizedBody as AnyObject).mood_note);
+    mood_note = note.length ? note.slice(0, 120) : null; // 長さはお好みで
+  }
+
   const trackUpsertPayload = {
     spotify_track_id: cleanSpotifyId,
     title: cleanTitle,
@@ -213,13 +229,26 @@ export async function POST(req: NextRequest) {
 
   const sanitizedPlayedAt = sanitizeText(sanitizedBody.played_at);
 
+  const nLat = Number(sanitizedBody.lat);
+  const nLng = Number(sanitizedBody.lng);
+  const nDur = Number(sanitizedBody.duration_ms);
+
+  if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) {
+    return json({ error: "lat/lng must be finite numbers" }, 400);
+  }
+  if (!Number.isFinite(nDur) || nDur < 0) {
+    return json({ error: "duration_ms must be a non-negative number" }, 400);
+  }
+
   const listenRow = {
     track_id,
     played_at: sanitizedPlayedAt,
     duration_ms: Number(sanitizedBody.duration_ms),
     lat: Number(sanitizedBody.lat),
     lng: Number(sanitizedBody.lng),
-    // mood は後で。user_id も後でAuth導入時に付与
+    mood,
+    mood_note,
+    // user_id は Auth 導入後に
   };
 
   detectNonAscii(listenRow, ["listens"]);
