@@ -40,13 +40,6 @@ bun dev
 `app/page.tsx` を編集するとページが自動で更新されます。
 
 
-
-### Learn More
-
-- [Next.js Documentation](https://nextjs.org/docs) - Next.js の機能やAPI
-- [Learn Next.js](https://nextjs.org/learn) - 対話型チュートリアル
-
 ### Deploy on Vercel
 
-Next.js アプリを最も簡単にデプロイするには、Vercel プラットフォームの利用が便利です。
-詳しくは [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) を参照してください。
+最終的にはVercelを使ったデプロイを実施予定。
