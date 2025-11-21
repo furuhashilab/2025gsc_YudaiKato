@@ -39,7 +39,7 @@ bun dev
 
 `app/page.tsx` を編集するとページが自動で更新されます。
 
-このプロジェクトでは [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) を利用して [Geist](https://vercel.com/font) フォントを最適化して読み込みます。
+
 
 ### Learn More
 
