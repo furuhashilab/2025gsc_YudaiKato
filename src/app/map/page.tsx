@@ -133,8 +133,8 @@ export default function MapPage() {
         <div style="min-width:220px">
           ${it.album_image_url ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>` : ""}
           <div style="margin-top:8px">
-            <strong>${it.title}</strong><br/>
-            <span style="color:#555">${it.artist}</span><br/>
+            <strong style="color:#0f172a">${it.title}</strong><br/>
+            <span style="color:#1f2937">${it.artist}</span><br/>
             <span style="color:#777;font-size:12px">${new Date(it.played_at).toLocaleString()}</span><br/>
             ${it.mood ? `<span style="font-size:12px;color:#444">mood: ${it.mood}${it.mood === "other" && it.mood_note ? ` — ${it.mood_note}` : ""}</span>` : ""}
           </div>
