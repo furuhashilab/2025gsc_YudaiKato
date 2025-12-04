@@ -16,6 +16,9 @@ type ListenItem = {
   lng: number;
   mood: Mood;
   mood_note?: string | null;
+  weather_main?: string | null;
+  weather_description?: string | null;
+  weather_temp_c?: number | null;
 };
 
 function colorByMood(m?: string | null) {
@@ -129,6 +132,15 @@ export default function MapPage() {
       });
 
       const marker = new maplibregl.Marker({ element: el }).setLngLat([it.lng, it.lat]);
+      const hasWeather = !!it.weather_main;
+      const weatherTemp =
+        typeof it.weather_temp_c === "number" && Number.isFinite(it.weather_temp_c)
+          ? `${it.weather_temp_c.toFixed(1)}℃`
+          : "";
+      const weatherDescription = it.weather_description ? ` (${it.weather_description})` : "";
+      const weatherLine = hasWeather
+        ? `天気: ${it.weather_main}${weatherDescription}${weatherTemp ? ` ${weatherTemp}` : ""}`
+        : "天気: 取得なし";
       const popupHtml = `
         <div style="min-width:220px">
           ${it.album_image_url ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>` : ""}
@@ -137,6 +149,7 @@ export default function MapPage() {
             <span style="color:#1f2937">${it.artist}</span><br/>
             <span style="color:#777;font-size:12px">${new Date(it.played_at).toLocaleString()}</span><br/>
             ${it.mood ? `<span style="font-size:12px;color:#444">mood: ${it.mood}${it.mood === "other" && it.mood_note ? ` — ${it.mood_note}` : ""}</span>` : ""}
+            <div style="font-size:12px;color:#444;margin-top:4px">${weatherLine}</div>
           </div>
         </div>`;
       marker.setPopup(new Popup({ offset: 12 }).setHTML(popupHtml)).addTo(map);
