@@ -128,13 +128,59 @@ function detectNonAscii(value: unknown, path: string[] = []): void {
   }
 }
 
+// ★ OpenWeatherMap から現在の天気を取得するヘルパー
+async function fetchWeatherFromOpenWeather(lat: number, lng: number) {
+  const apiKey = process.env.OPENWEATHER_API_KEY;
+  if (!apiKey) {
+    console.warn("[weather] OPENWEATHER_API_KEY is not set");
+    return null;
+  }
+
+  try {
+    const url = new URL("https://api.openweathermap.org/data/2.5/weather");
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lng));
+    url.searchParams.set("appid", apiKey);
+    url.searchParams.set("units", "metric"); // 摂氏
+    url.searchParams.set("lang", "ja");      // 日本語（お好みで）
+
+    console.log("[weather] request URL:", url.toString()); // 🌟 追加
+
+    const res = await fetch(url.toString());
+    console.log("[weather] status:", res.status); // 🌟 追加
+    if (!res.ok) {
+      console.warn("[weather] OpenWeatherMap response not ok", res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    console.log("[weather] raw:", data); // 🌟 追加
+
+    // OpenWeatherMap の代表値をざっくり拾う
+    const main = data.weather?.[0]?.main ?? null;           // 例: "Clear"
+    const description = data.weather?.[0]?.description ?? null; // 例: "晴天"
+    const tempC = typeof data.main?.temp === "number" ? data.main.temp : null;
+
+    console.log("[weather] parsed:", { main, description, tempC }); // 🌟 追加
+
+    return {
+      weather_main: main,
+      weather_description: description,
+      weather_temp_c: tempC,
+    };
+  } catch (e) {
+    console.error("[weather] fetch error", e);
+    return null;
+  }
+}
+
 export async function GET() {
   // 最新200件（tracksとJOINして表示に必要な情報をまとめて返す）
   const { data, error } = await supabaseAdmin
     .from("listens")
     .select(
       `
-      id, played_at, lat, lng, duration_ms, mood, mood_note, created_at,
+      id, played_at, lat, lng, duration_ms, mood, mood_note, weather_main, weather_description, weather_temp_c, created_at,
       tracks:track_id (
         spotify_track_id, title, artist, album_image_url
       )
@@ -153,6 +199,9 @@ export async function GET() {
     duration_ms: row.duration_ms,
     mood: row.mood ?? null,
     mood_note: row.mood_note ?? null,
+    weather_main: row.weather_main ?? null,              // ★ 追加
+    weather_description: row.weather_description ?? null, // ★ 追加
+    weather_temp_c: row.weather_temp_c ?? null,          // ★ 追加
     title: row.tracks?.title ?? "",
     artist: row.tracks?.artist ?? "",
     album_image_url: row.tracks?.album_image_url ?? null,
@@ -193,20 +242,6 @@ export async function POST(req: NextRequest) {
   // 画像 URL は http/https のみ許可。妥当でなければ null。
   const cleanImage = sanitizeUrl(sanitizedBody.album_image_url);
 
-  // ★ mood と mood_note を定義（ASCIIラベルで管理）
-  const rawMood = sanitizeText((sanitizedBody as AnyObject).mood);
-  // 許容ラベル：happy / soso / sad / other
-  const allowed = new Set(["happy", "soso", "sad", "other"]);
-  const mood =
-    rawMood && allowed.has(rawMood) ? (rawMood as "happy" | "soso" | "sad" | "other") : null;
-
-  // other のときだけ自由記入を採用（空文字は null に）
-  let mood_note: string | null = null;
-  if (mood === "other") {
-    const note = sanitizeText((sanitizedBody as AnyObject).mood_note);
-    mood_note = note.length ? note.slice(0, 120) : null; // 長さはお好みで
-  }
-
   const trackUpsertPayload = {
     spotify_track_id: cleanSpotifyId,
     title: cleanTitle,
@@ -229,11 +264,34 @@ export async function POST(req: NextRequest) {
 
   const sanitizedPlayedAt = sanitizeText(sanitizedBody.played_at);
 
-  const nLat = Number(sanitizedBody.lat);
-  const nLng = Number(sanitizedBody.lng);
+  // ★ lat/lng を number として取り出す
+  const lat = Number(sanitizedBody.lat);
+  const lng = Number(sanitizedBody.lng);
+
+  // ★ mood / mood_note も安全に取り出す
+  const mood =
+    typeof sanitizedBody.mood === "string" ? sanitizeText(sanitizedBody.mood) : null;
+  const mood_note =
+    typeof sanitizedBody.mood_note === "string" ? sanitizeText(sanitizedBody.mood_note) : null;
+
+  // ★ 天気用の変数を用意（デフォルトは null）
+  let weather_main: string | null = null;
+  let weather_description: string | null = null;
+  let weather_temp_c: number | null = null;
+
+  // ★ lat/lng がちゃんと数値で、APIキーもあるときだけ天気を取りに行く
+  if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+    const weather = await fetchWeatherFromOpenWeather(lat, lng);
+    if (weather) {
+      weather_main = weather.weather_main;
+      weather_description = weather.weather_description;
+      weather_temp_c = weather.weather_temp_c;
+    }
+  }
+
   const nDur = Number(sanitizedBody.duration_ms);
 
-  if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return json({ error: "lat/lng must be finite numbers" }, 400);
   }
   if (!Number.isFinite(nDur) || nDur < 0) {
@@ -244,10 +302,13 @@ export async function POST(req: NextRequest) {
     track_id,
     played_at: sanitizedPlayedAt,
     duration_ms: Number(sanitizedBody.duration_ms),
-    lat: Number(sanitizedBody.lat),
-    lng: Number(sanitizedBody.lng),
+    lat,
+    lng,
     mood,
     mood_note,
+    weather_main,
+    weather_description,
+    weather_temp_c,
     // user_id は Auth 導入後に
   };
 
