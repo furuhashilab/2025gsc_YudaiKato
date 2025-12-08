@@ -78,9 +78,9 @@ export default function StatsPage() {
 
   const sortedTimeStats: DisplayTimeStat[] = (timeStats ?? [])
     .map((row, idx) => {
-      const slot: DisplayTimeStat["time_slot"] =
+      const slot: DisplayTimeStat["time_slot"] | "unknown" =
         row.time_slot && row.time_slot in timeOrder ? row.time_slot : "unknown";
-      return { ...row, time_slot: slot, __key: idx };
+      return { ...row, time_slot: slot as DisplayTimeStat["time_slot"], __key: idx };
     })
     .sort((a, b) => {
       if (a.time_slot !== b.time_slot) {
