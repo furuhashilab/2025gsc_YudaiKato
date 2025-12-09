@@ -40,10 +40,14 @@ export default function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const markerMapRef = useRef<Record<string, maplibregl.Marker>>({});
+  const openPopupRef = useRef<maplibregl.Popup | null>(null);
   const [items, setItems] = useState<ListenItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  const [active, setActive] = useState<Record<Exclude<Mood, null>, boolean>>({
+  const [active, setActive] = useState<
+    Record<Exclude<Mood, null>, boolean>
+  >({
     happy: true,
     soso: true,
     sad: true,
@@ -97,8 +101,11 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
+      openPopupRef.current?.remove();
+      openPopupRef.current = null;
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
+      markerMapRef.current = {};
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -108,8 +115,12 @@ export default function MapPage() {
     const map = mapRef.current;
     if (!map || !items.length) return;
 
+    // 既存マーカーを削除
+    openPopupRef.current?.remove();
+    openPopupRef.current = null;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
+    markerMapRef.current = {};
 
     const filtered = items.filter((it) => {
       const mood = it.mood ?? "other";
@@ -131,29 +142,68 @@ export default function MapPage() {
         boxShadow: "0 0 0 1px rgba(0,0,0,.2)",
       });
 
-      const marker = new maplibregl.Marker({ element: el }).setLngLat([it.lng, it.lat]);
+      const marker = new maplibregl.Marker({ element: el }).setLngLat([
+        it.lng,
+        it.lat,
+      ]);
+
       const hasWeather = !!it.weather_main;
       const weatherTemp =
-        typeof it.weather_temp_c === "number" && Number.isFinite(it.weather_temp_c)
+        typeof it.weather_temp_c === "number" &&
+        Number.isFinite(it.weather_temp_c)
           ? `${it.weather_temp_c.toFixed(1)}℃`
           : "";
-      const weatherDescription = it.weather_description ? ` (${it.weather_description})` : "";
+      const weatherDescription = it.weather_description
+        ? ` (${it.weather_description})`
+        : "";
       const weatherLine = hasWeather
-        ? `天気: ${it.weather_main}${weatherDescription}${weatherTemp ? ` ${weatherTemp}` : ""}`
+        ? `天気: ${it.weather_main}${weatherDescription}${
+            weatherTemp ? ` ${weatherTemp}` : ""
+          }`
         : "天気: 取得なし";
+
       const popupHtml = `
         <div style="min-width:220px">
-          ${it.album_image_url ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>` : ""}
+          ${
+            it.album_image_url
+              ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>`
+              : ""
+          }
           <div style="margin-top:8px">
             <strong style="color:#0f172a">${it.title}</strong><br/>
             <span style="color:#1f2937">${it.artist}</span><br/>
-            <span style="color:#777;font-size:12px">${new Date(it.played_at).toLocaleString()}</span><br/>
-            ${it.mood ? `<span style="font-size:12px;color:#444">mood: ${it.mood}${it.mood === "other" && it.mood_note ? ` — ${it.mood_note}` : ""}</span>` : ""}
+            <span style="color:#777;font-size:12px">${new Date(
+              it.played_at,
+            ).toLocaleString()}</span><br/>
+            ${
+              it.mood
+                ? `<span style="font-size:12px;color:#444">mood: ${
+                    it.mood
+                  }${
+                    it.mood === "other" && it.mood_note
+                      ? ` — ${it.mood_note}`
+                      : ""
+                  }</span>`
+                : ""
+            }
             <div style="font-size:12px;color:#444;margin-top:4px">${weatherLine}</div>
           </div>
         </div>`;
-      marker.setPopup(new Popup({ offset: 12 }).setHTML(popupHtml)).addTo(map);
+      const popup = new Popup({ offset: 12 }).setHTML(popupHtml);
+      popup.on("open", () => {
+        if (openPopupRef.current && openPopupRef.current !== popup) {
+          openPopupRef.current.remove();
+        }
+        openPopupRef.current = popup;
+      });
+      popup.on("close", () => {
+        if (openPopupRef.current === popup) {
+          openPopupRef.current = null;
+        }
+      });
+      marker.setPopup(popup).addTo(map);
       markersRef.current.push(marker);
+      markerMapRef.current[it.id] = marker;
       bounds.extend([it.lng, it.lat]);
     }
 
@@ -165,7 +215,14 @@ export default function MapPage() {
   }, [items, activeSet]);
 
   return (
-    <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <main
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* ヘッダー（そのまま） */}
       <header
         style={{
           padding: 12,
@@ -214,7 +271,13 @@ export default function MapPage() {
                   }))
                 }
               />
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
                 <span
                   style={{
                     width: 10,
@@ -222,7 +285,7 @@ export default function MapPage() {
                     borderRadius: "9999px",
                     background: color,
                     border: "1px solid #fff",
-                    boxShadow: "0 0 0 1px rgba(0,0,0,.2)",
+                    boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.2)",
                   }}
                 />
                 {key}
@@ -233,11 +296,178 @@ export default function MapPage() {
       </header>
 
       {err && (
-        <div role="alert" style={{ padding: 12, color: "#842029", background: "#f8d7da" }}>
+        <div
+          role="alert"
+          style={{
+            padding: 12,
+            color: "#842029",
+            background: "#f8d7da",
+          }}
+        >
           {err}
         </div>
       )}
-      <div ref={containerRef} style={{ flex: 1 }} />
+
+      {/* ヘッダーの下を「地図＋リスト」の横並びにする */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          minHeight: 0,
+        }}
+      >
+        {/* 地図エリア */}
+        <div
+          style={{
+            flex: 1,
+            position: "relative",
+          }}
+        >
+          <div
+            ref={containerRef}
+            style={{
+              position: "absolute",
+              inset: 0,
+            }}
+          />
+        </div>
+
+        {/* 楽曲リストエリア（PC 想定） */}
+        <aside
+          style={{
+            width: 320,
+            maxWidth: "35%",
+            borderLeft: "1px solid #e5e7eb",
+            background: "rgba(255,255,255,0.9)",
+            padding: 12,
+            overflowY: "auto",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              marginBottom: 12,
+            }}
+          >
+            保存された楽曲
+          </h2>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            {items.map((it) => (
+              <div
+                key={it.id}
+                style={{
+                  background: "white",
+                  borderRadius: 10,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                  padding: 10,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+                onClick={() => {
+                  const map = mapRef.current;
+                  const marker = markerMapRef.current[it.id];
+                  if (!map) return;
+                  map.flyTo({
+                    center: [it.lng, it.lat],
+                    zoom: 14,
+                    essential: true,
+                  });
+                  if (marker) {
+                    const popup = marker.getPopup();
+                    if (popup) {
+                      if (openPopupRef.current && openPopupRef.current !== popup) {
+                        openPopupRef.current.remove();
+                      }
+                      popup.setLngLat(marker.getLngLat()).addTo(map);
+                      openPopupRef.current = popup;
+                    }
+                  }
+                }}
+              >
+                {it.album_image_url ? (
+                  <div
+                    style={{
+                      width: "100%",
+                      paddingBottom: "100%",
+                      position: "relative",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <img
+                      src={it.album_image_url}
+                      alt={it.title}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      paddingBottom: "100%",
+                      background: "#e5e7eb",
+                      borderRadius: 8,
+                    }}
+                  />
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      margin: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {it.title}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      margin: 0,
+                      color: "#4b5563",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {it.artist}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      margin: 0,
+                      color: "#9ca3af",
+                    }}
+                  >
+                    {new Date(it.played_at).toLocaleString("ja-JP")}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+      </div>
     </main>
   );
 }
