@@ -5,7 +5,14 @@ import { createPkcePair } from '@/lib/spotify/pkce';
 export async function GET() {
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
   const redirectUri = process.env.SPOTIFY_REDIRECT_URI!;
-  const scope = process.env.SPOTIFY_SCOPE || 'user-read-recently-played';
+  const baseScope = process.env.SPOTIFY_SCOPE || 'user-read-recently-played';
+  const requiredScopes = [
+    'user-read-currently-playing',
+    'user-read-playback-state',
+  ];
+  const scopeSet = new Set(baseScope.split(/\s+/).filter(Boolean));
+  requiredScopes.forEach((s) => scopeSet.add(s));
+  const scope = Array.from(scopeSet).join(' ');
 
   const { code_verifier, code_challenge } = await createPkcePair();
   const state = crypto.randomUUID();

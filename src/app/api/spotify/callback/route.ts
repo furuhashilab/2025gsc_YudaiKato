@@ -45,6 +45,8 @@ export async function GET(req: NextRequest) {
     res.cookies.set('spotify_refresh_token', token.refresh_token, {
       httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30
     });
+  } else {
+    return new NextResponse('No refresh_token returned; re-login required', { status: 401 });
   }
   // 掃除
   res.cookies.set('spotify_code_verifier', '', { path: '/', maxAge: 0 });

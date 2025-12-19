@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { Map as MapLibreMap, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -42,8 +42,12 @@ export default function MapPage() {
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const markerMapRef = useRef<Record<string, maplibregl.Marker>>({});
   const openPopupRef = useRef<maplibregl.Popup | null>(null);
+  const lastTrackIdRef = useRef<string | null>(null);
+  const didInitialFitRef = useRef(false);
   const [items, setItems] = useState<ListenItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
+
+  const POLL_INTERVAL_MS = 15000;
 
   const [active, setActive] = useState<
     Record<Exclude<Mood, null>, boolean>
@@ -61,6 +65,13 @@ export default function MapPage() {
     });
     return s;
   }, [active]);
+
+  const loadListens = useCallback(async () => {
+    const res = await fetch("/api/listens", { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error ?? "fetch failed");
+    setItems((json.items ?? []) as ListenItem[]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,10 +101,8 @@ export default function MapPage() {
       map.addControl(new maplibregl.NavigationControl(), "top-right");
 
       (async () => {
-        const res = await fetch("/api/listens", { cache: "no-store" });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error ?? "fetch failed");
-        if (!cancelled) setItems((json.items ?? []) as ListenItem[]);
+        await loadListens();
+        if (cancelled) return;
       })().catch((e) => setErr(String(e)));
     } catch (e: any) {
       setErr(e?.message ?? "Map init error");
@@ -109,7 +118,115 @@ export default function MapPage() {
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [loadListens]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let isPolling = false;
+    const channel =
+      typeof window !== "undefined" && "BroadcastChannel" in window
+        ? new BroadcastChannel("listens-updated")
+        : null;
+
+    const poll = async () => {
+      if (isPolling) return;
+      isPolling = true;
+      try {
+        const res = await fetch("/api/spotify/currently-playing", {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error("[poll] failed", res.status, errText);
+          return;
+        }
+        const data: {
+          trackId: string;
+          title: string;
+          artist: string;
+          albumImageUrl: string | null;
+          isPlaying: boolean;
+          progressMs: number;
+          durationMs: number;
+        } | null = await res.json();
+
+        if (!data || !data.trackId || !data.isPlaying) return;
+        if (lastTrackIdRef.current === null) {
+          lastTrackIdRef.current = data.trackId;
+          return;
+        }
+        if (lastTrackIdRef.current === data.trackId) return;
+        lastTrackIdRef.current = data.trackId;
+
+        if (!navigator.geolocation) {
+          console.error("[poll] geolocation not available");
+          return;
+        }
+
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+
+        const payload = {
+          spotify_track_id: data.trackId,
+          title: data.title,
+          artist: data.artist,
+          album_image_url: data.albumImageUrl,
+          played_at: new Date().toISOString(),
+          duration_ms: data.durationMs,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+
+        const saveRes = await fetch("/api/listens", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!saveRes.ok) {
+          const errText = await saveRes.text();
+          console.error("[poll] save failed", saveRes.status, errText);
+          return;
+        }
+        channel?.postMessage({ type: "listens-updated" });
+
+        try {
+          await loadListens();
+        } catch (e: any) {
+          if (!cancelled) {
+            console.error("[poll] refresh failed", e?.message ?? e);
+          }
+        }
+      } catch (e) {
+        console.error("[poll] error", e);
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    poll();
+    timer = setInterval(poll, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      channel?.close();
+    };
+  }, [loadListens]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      loadListens().catch((e) => console.error("[focus] refresh failed", e));
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadListens]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -207,10 +324,13 @@ export default function MapPage() {
       bounds.extend([it.lng, it.lat]);
     }
 
-    if (filtered.length === 1) {
-      map.flyTo({ center: [filtered[0].lng, filtered[0].lat], zoom: 14 });
-    } else {
-      map.fitBounds(bounds, { padding: 60 });
+    if (!didInitialFitRef.current) {
+      if (filtered.length === 1) {
+        map.flyTo({ center: [filtered[0].lng, filtered[0].lat], zoom: 14 });
+      } else {
+        map.fitBounds(bounds, { padding: 60 });
+      }
+      didInitialFitRef.current = true;
     }
   }, [items, activeSet]);
 

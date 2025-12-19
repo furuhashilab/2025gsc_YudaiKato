@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "@/utils/toast";
 import { MoodPicker, type Mood } from "./MoodPicker";
 
@@ -13,13 +13,33 @@ type TrackCardProps = {
     played_at: string;
     duration_ms: number;
   };
+  isPinned?: boolean;
+  listen?: {
+    id: string;
+    mood: string | null;
+    mood_note?: string | null;
+  };
+  onUpdated?: () => void;
 };
 
-export function TrackCard({ item }: TrackCardProps) {
+export function TrackCard({
+  item,
+  isPinned = false,
+  listen,
+  onUpdated,
+}: TrackCardProps) {
   const [mood, setMood] = useState<Mood>("soso");
   const [moodNote, setMoodNote] = useState("");
 
+  useEffect(() => {
+    if (listen?.mood) {
+      setMood(listen.mood as Mood);
+      setMoodNote(listen.mood_note ?? "");
+    }
+  }, [listen?.mood, listen?.mood_note]);
+
   async function handlePin() {
+    if (isPinned) return;
     if (!("geolocation" in navigator)) {
       toast("このブラウザでは位置情報が使えません");
       return;
@@ -60,6 +80,32 @@ export function TrackCard({ item }: TrackCardProps) {
       }
     }
   }
+
+  async function handleUpdateMood() {
+    if (!listen?.id) return;
+    try {
+      const res = await fetch("/api/listens", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: listen.id,
+          mood,
+          mood_note: mood === "other" ? moodNote : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        toast(json.error ?? "更新に失敗しました…");
+        return;
+      }
+      toast("Mood を更新しました ✅");
+      onUpdated?.();
+    } catch (err: any) {
+      toast(err?.message ?? "更新に失敗しました");
+    }
+  }
+
+  const canEditMood = !isPinned || !listen?.mood;
 
   const playedLocal = new Intl.DateTimeFormat(undefined, {
     year: "numeric",
@@ -127,25 +173,68 @@ export function TrackCard({ item }: TrackCardProps) {
           </p>
         </div>
 
+        {isPinned && (
+          <div
+            style={{
+              alignSelf: "start",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 8px",
+              borderRadius: 9999,
+              background: listen?.mood ? "#e0f2fe" : "#fef9c3",
+              color: listen?.mood ? "#075985" : "#854d0e",
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {listen?.mood ? "保存済み" : "保存済み（Mood未設定）"}
+          </div>
+        )}
+
         <div>
           <p style={{ margin: "0 0 4px", fontSize: 12, color: "#555" }}>Mood を選択</p>
-          <MoodPicker value={mood} note={moodNote} onChange={setMood} onNoteChange={setMoodNote} />
+          <MoodPicker
+            value={mood}
+            note={moodNote}
+            onChange={setMood}
+            onNoteChange={setMoodNote}
+            disabled={!canEditMood}
+          />
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {isPinned && !listen?.mood ? (
+            <button
+              onClick={handleUpdateMood}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                background: "#fef9c3",
+                cursor: "pointer",
+                color: "#854d0e",
+              }}
+            >
+              Mood を保存
+            </button>
+          ) : (
           <button
             onClick={handlePin}
+            disabled={isPinned}
             style={{
               padding: "8px 12px",
               borderRadius: 10,
               border: "1px solid #ddd",
-              background: "#f8fafc",
-              cursor: "pointer",
-              color: "#000",
+              background: isPinned ? "#e5e7eb" : "#f8fafc",
+              cursor: isPinned ? "not-allowed" : "pointer",
+              color: isPinned ? "#6b7280" : "#000",
+              opacity: isPinned ? 0.7 : 1,
             }}
           >
-            現在地にピン
+            {isPinned ? "保存済み" : "現在地にピン"}
           </button>
+          )}
           <a
             href="/map"
             style={{

@@ -340,3 +340,31 @@ export async function POST(req: NextRequest) {
 
   return json({ ok: true, id: ins!.id });
 }
+
+export async function PATCH(req: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const sanitizedBody = sanitizePayloadDeep(body);
+  const id = sanitizeText(sanitizedBody.id);
+  const mood =
+    typeof sanitizedBody.mood === "string" ? sanitizeText(sanitizedBody.mood) : "";
+  const mood_note =
+    typeof sanitizedBody.mood_note === "string" ? sanitizeText(sanitizedBody.mood_note) : null;
+
+  if (!id) return json({ error: "Missing field: id" }, 400);
+  if (!mood) return json({ error: "Missing field: mood" }, 400);
+
+  const { error: upErr } = await supabaseAdmin
+    .from("listens")
+    .update({ mood, mood_note })
+    .eq("id", id);
+
+  if (upErr) return json({ error: `listens update failed: ${upErr.message}` }, 500);
+
+  return json({ ok: true, id });
+}
