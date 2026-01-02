@@ -20,6 +20,7 @@ type ListenItem = {
   id: string;
   spotify_track_id: string;
   played_at: string;
+  spotify_played_at: string;
   mood: string | null;
   mood_note?: string | null;
 };
@@ -60,6 +61,11 @@ export default function Home() {
   const [pinnedMap, setPinnedMap] = useState<Map<string, ListenItem>>(new Map());
 
   const normalizeId = useCallback((id: string) => id.trim(), []);
+  const buildPinnedKey = useCallback(
+    (trackId: string, spotifyPlayedAt: string) =>
+      `${normalizeId(trackId)}-${spotifyPlayedAt.trim()}`,
+    [normalizeId],
+  );
   const lastTrackIdRef = useRef<string | null>(null);
   const POLL_INTERVAL_MS = 15000;
 
@@ -74,22 +80,14 @@ export default function Home() {
     const next = new Set<string>();
     const nextMap = new Map<string, ListenItem>();
     result.items.forEach((it) => {
-      const key = normalizeId(it.spotify_track_id);
+      if (!it.spotify_track_id || !it.spotify_played_at) return;
+      const key = buildPinnedKey(it.spotify_track_id, it.spotify_played_at);
       next.add(key);
-      const existing = nextMap.get(key);
-      if (!existing) {
-        nextMap.set(key, it);
-        return;
-      }
-      const existingTime = Date.parse(existing.played_at);
-      const nextTime = Date.parse(it.played_at);
-      if (!Number.isNaN(nextTime) && (Number.isNaN(existingTime) || nextTime > existingTime)) {
-        nextMap.set(key, it);
-      }
+      nextMap.set(key, it);
     });
     setPinnedSet(next);
     setPinnedMap(nextMap);
-  }, []);
+  }, [buildPinnedKey]);
 
   useEffect(() => {
     loadRecent();
@@ -211,15 +209,18 @@ export default function Home() {
 
   return (
     <main style={{ padding: 16, display: "grid", gap: 12 }}>
-      {recent.items.map((it) => (
-        <TrackCard
-          key={`${it.played_at}-${it.spotify_track_id}`}
-          item={it}
-          isPinned={pinnedSet.has(normalizeId(it.spotify_track_id))}
-          listen={pinnedMap.get(normalizeId(it.spotify_track_id))}
-          onUpdated={loadListens}
-        />
-      ))}
+      {recent.items.map((it) => {
+        const key = buildPinnedKey(it.spotify_track_id, it.played_at);
+        return (
+          <TrackCard
+            key={key}
+            item={it}
+            isPinned={pinnedSet.has(key)}
+            listen={pinnedMap.get(key)}
+            onUpdated={loadListens}
+          />
+        );
+      })}
     </main>
   );
 }
