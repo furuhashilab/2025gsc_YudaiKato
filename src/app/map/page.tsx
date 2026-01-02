@@ -42,7 +42,13 @@ export default function MapPage() {
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const markerMapRef = useRef<Record<string, maplibregl.Marker>>({});
   const openPopupRef = useRef<maplibregl.Popup | null>(null);
-  const lastTrackIdRef = useRef<string | null>(null);
+  const lastTrackRef = useRef<{
+    trackId: string;
+    title: string;
+    artist: string;
+    albumImageUrl: string | null;
+    durationMs: number;
+  } | null>(null);
   const didInitialFitRef = useRef(false);
   const [items, setItems] = useState<ListenItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -152,12 +158,17 @@ export default function MapPage() {
         } | null = await res.json();
 
         if (!data || !data.trackId || !data.isPlaying) return;
-        if (lastTrackIdRef.current === null) {
-          lastTrackIdRef.current = data.trackId;
+        if (lastTrackRef.current === null) {
+          lastTrackRef.current = {
+            trackId: data.trackId,
+            title: data.title,
+            artist: data.artist,
+            albumImageUrl: data.albumImageUrl,
+            durationMs: data.durationMs,
+          };
           return;
         }
-        if (lastTrackIdRef.current === data.trackId) return;
-        lastTrackIdRef.current = data.trackId;
+        if (lastTrackRef.current.trackId === data.trackId) return;
 
         if (!navigator.geolocation) {
           console.error("[poll] geolocation not available");
@@ -195,6 +206,13 @@ export default function MapPage() {
           return;
         }
         channel?.postMessage({ type: "listens-updated" });
+        lastTrackRef.current = {
+          trackId: data.trackId,
+          title: data.title,
+          artist: data.artist,
+          albumImageUrl: data.albumImageUrl,
+          durationMs: data.durationMs,
+        };
 
         try {
           await loadListens();
