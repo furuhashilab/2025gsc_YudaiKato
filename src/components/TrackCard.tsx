@@ -59,6 +59,7 @@ export function TrackCard({
           artist: item.artist,
           album_image_url: item.album_image_url,
           played_at: item.played_at,
+          spotify_played_at: item.played_at,
           duration_ms: item.duration_ms,
           lat,
           lng,
@@ -173,27 +174,19 @@ export function TrackCard({
           </p>
         </div>
 
-        {isPinned && (
-          <div
-            style={{
-              alignSelf: "start",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 8px",
-              borderRadius: 9999,
-              background: listen?.mood ? "#e0f2fe" : "#fef9c3",
-              color: listen?.mood ? "#075985" : "#854d0e",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {listen?.mood ? "保存済み" : "保存済み（Mood未設定）"}
-          </div>
-        )}
-
         <div>
-          <p style={{ margin: "0 0 4px", fontSize: 12, color: "#555" }}>Mood を選択</p>
+          <p style={{ margin: "0 0 4px", fontSize: 12, color: "#555" }}>moodを選択</p>
+          {isPinned && (
+            <p
+              style={{
+                margin: "0 0 8px",
+                fontSize: 12,
+                color: listen?.mood ? "#6b7280" : "#b45309",
+              }}
+            >
+              {listen?.mood ? "登録済みです" : "未設定です"}
+            </p>
+          )}
           <MoodPicker
             value={mood}
             note={moodNote}
@@ -203,7 +196,8 @@ export function TrackCard({
           />
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {isPinned && !listen?.mood ? (
             <button
               onClick={handleUpdateMood}
@@ -245,6 +239,7 @@ export function TrackCard({
           >
             地図を開く
           </a>
+          </div>
         </div>
       </div>
     </article>

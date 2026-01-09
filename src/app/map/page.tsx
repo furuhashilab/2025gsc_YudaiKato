@@ -42,18 +42,9 @@ export default function MapPage() {
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const markerMapRef = useRef<Record<string, maplibregl.Marker>>({});
   const openPopupRef = useRef<maplibregl.Popup | null>(null);
-  const lastTrackRef = useRef<{
-    trackId: string;
-    title: string;
-    artist: string;
-    albumImageUrl: string | null;
-    durationMs: number;
-  } | null>(null);
   const didInitialFitRef = useRef(false);
   const [items, setItems] = useState<ListenItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
-
-  const POLL_INTERVAL_MS = 15000;
 
   const [active, setActive] = useState<
     Record<Exclude<Mood, null>, boolean>
@@ -127,113 +118,19 @@ export default function MapPage() {
   }, [loadListens]);
 
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    let isPolling = false;
+    // map 側の自動保存は行わない。Home 側の保存と BroadcastChannel 通知に任せる。
     const channel =
       typeof window !== "undefined" && "BroadcastChannel" in window
         ? new BroadcastChannel("listens-updated")
         : null;
-
-    const poll = async () => {
-      if (isPolling) return;
-      isPolling = true;
-      try {
-        const res = await fetch("/api/spotify/currently-playing", {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error("[poll] failed", res.status, errText);
-          return;
-        }
-        const data: {
-          trackId: string;
-          title: string;
-          artist: string;
-          albumImageUrl: string | null;
-          isPlaying: boolean;
-          progressMs: number;
-          durationMs: number;
-        } | null = await res.json();
-
-        if (!data || !data.trackId || !data.isPlaying) return;
-        if (lastTrackRef.current === null) {
-          lastTrackRef.current = {
-            trackId: data.trackId,
-            title: data.title,
-            artist: data.artist,
-            albumImageUrl: data.albumImageUrl,
-            durationMs: data.durationMs,
-          };
-          return;
-        }
-        if (lastTrackRef.current.trackId === data.trackId) return;
-
-        if (!navigator.geolocation) {
-          console.error("[poll] geolocation not available");
-          return;
-        }
-
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: false,
-            timeout: 10000,
-            maximumAge: 0,
-          });
-        });
-
-        const payload = {
-          spotify_track_id: data.trackId,
-          title: data.title,
-          artist: data.artist,
-          album_image_url: data.albumImageUrl,
-          played_at: new Date().toISOString(),
-          duration_ms: data.durationMs,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
-
-        const saveRes = await fetch("/api/listens", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!saveRes.ok) {
-          const errText = await saveRes.text();
-          console.error("[poll] save failed", saveRes.status, errText);
-          return;
-        }
-        channel?.postMessage({ type: "listens-updated" });
-        lastTrackRef.current = {
-          trackId: data.trackId,
-          title: data.title,
-          artist: data.artist,
-          albumImageUrl: data.albumImageUrl,
-          durationMs: data.durationMs,
-        };
-
-        try {
-          await loadListens();
-        } catch (e: any) {
-          if (!cancelled) {
-            console.error("[poll] refresh failed", e?.message ?? e);
-          }
-        }
-      } catch (e) {
-        console.error("[poll] error", e);
-      } finally {
-        isPolling = false;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "listens-updated") {
+        loadListens().catch((e) => console.error("[map] refresh failed", e));
       }
     };
-
-    poll();
-    timer = setInterval(poll, POLL_INTERVAL_MS);
-
+    channel?.addEventListener("message", onMessage);
     return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
+      channel?.removeEventListener("message", onMessage);
       channel?.close();
     };
   }, [loadListens]);

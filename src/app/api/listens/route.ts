@@ -180,7 +180,7 @@ export async function GET() {
     .from("listens")
     .select(
       `
-      id, played_at, lat, lng, duration_ms, mood, mood_note, weather_main, weather_description, weather_temp_c, created_at,
+      id, played_at, spotify_played_at, lat, lng, duration_ms, mood, mood_note, weather_main, weather_description, weather_temp_c, created_at,
       tracks:track_id (
         spotify_track_id, title, artist, album_image_url
       )
@@ -194,6 +194,7 @@ export async function GET() {
   const items = (data ?? []).map((row: any) => ({
     id: row.id,
     played_at: row.played_at,
+    spotify_played_at: row.spotify_played_at,
     lat: row.lat,
     lng: row.lng,
     duration_ms: row.duration_ms,
@@ -224,6 +225,7 @@ export async function POST(req: NextRequest) {
     "title",
     "artist",
     "played_at",
+    "spotify_played_at",
     "duration_ms",
     "lat",
     "lng",
@@ -263,6 +265,7 @@ export async function POST(req: NextRequest) {
   const track_id = upserted!.id;
 
   const sanitizedPlayedAt = sanitizeText(sanitizedBody.played_at);
+  const sanitizedSpotifyPlayedAt = sanitizeText(sanitizedBody.spotify_played_at);
 
   // ★ lat/lng を number として取り出す
   const lat = Number(sanitizedBody.lat);
@@ -301,6 +304,7 @@ export async function POST(req: NextRequest) {
   const listenRow = {
     track_id,
     played_at: sanitizedPlayedAt,
+    spotify_played_at: sanitizedSpotifyPlayedAt,
     duration_ms: Number(sanitizedBody.duration_ms),
     lat,
     lng,
@@ -317,9 +321,9 @@ export async function POST(req: NextRequest) {
   // 簡易・重複排除（同一曲×同時刻×近傍を拒否）
   const { data: dup, error: dupErr } = await supabaseAdmin
     .from("listens")
-    .select("id, lat, lng, played_at, track_id")
+    .select("id, lat, lng, spotify_played_at, track_id")
     .eq("track_id", track_id)
-    .eq("played_at", listenRow.played_at)
+    .eq("spotify_played_at", listenRow.spotify_played_at)
     .limit(1);
   if (dupErr) return json({ error: dupErr.message }, 500);
 
