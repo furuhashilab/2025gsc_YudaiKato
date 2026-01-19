@@ -2,8 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-
-type AnyObject = Record<string, unknown>;
+import {
+  detectNonAscii,
+  sanitizePayloadDeep,
+  sanitizeText,
+  sanitizeUrl,
+} from "@/utils/sanitize";
 
 // 共通ヘルパ
 function json(data: any, status = 200) {
@@ -13,120 +17,71 @@ function json(data: any, status = 200) {
   });
 }
 
-const charReplacements: Record<string, string> = {
-  "（": "(",
-  "）": ")",
-  "【": "[",
-  "】": "]",
-  "｛": "{",
-  "｝": "}",
-  "！": "!",
-  "？": "?",
-  "＠": "@",
-  "＃": "#",
-  "＄": "$",
-  "％": "%",
-  "＆": "&",
-  "＊": "*",
-  "＋": "+",
-  "－": "-",
-  "＝": "=",
-  "：": ":",
-  "；": ";",
-  "，": ",",
-  "．": ".",
-  "／": "/",
-  "＼": "\\",
-  "｜": "|",
-  "＾": "^",
-  "｀": "`",
-  "～": "~",
-  "＜": "<",
-  "＞": ">",
-  "「": "\"",
-  "」": "\"",
-  "『": "\"",
-  "』": "\"",
-  "“": "\"",
-  "”": "\"",
-  "’": "'",
-  "＇": "'",
-  "　": " ",
-};
+type Body = Record<string, unknown>;
 
-function sanitizeText(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  // 1) Unicode 正規化（互換：全角→半角など）
-  let s = String(value).normalize("NFKC");
-  // 2) 全角記号→半角置換
-  s = Array.from(s).map((ch) => charReplacements[ch] ?? ch).join("");
-  // 3) 制御文字（\t \r \n 以外）を除去
-  s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-  // 4) ゼロ幅系を除去（ZWSP/ZWNJ/ZWJ/BOM）
-  s = s.replace(/[\u200B-\u200D\uFEFF]/g, "");
-  // 5) 連続空白を1つに圧縮して前後をトリム
-  s = s.replace(/\s+/g, " ").trim();
-  // 6) 過剰入力防止のための上限
-  if (s.length > 512) s = s.slice(0, 512);
-  return s;
-}
-
-// URL 専用サニタイズ: http/https のみ許可。妥当でなければ null。
-function sanitizeUrl(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const s = sanitizeText(value);
-  try {
-    const u = new URL(s);
-    if (u.protocol === "http:" || u.protocol === "https:") {
-      return u.toString();
+function getRequiredFieldError(body: Body, required: string[]): string | null {
+  for (const key of required) {
+    if (body[key] === undefined || body[key] === null || body[key] === "") {
+      return `Missing field: ${key}`;
     }
-  } catch {
-    // invalid URL
   }
   return null;
 }
 
-function sanitizePayloadDeep<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizePayloadDeep(item)) as unknown as T;
-  }
-  if (value && typeof value === "object") {
-    const result: AnyObject = {};
-    for (const [key, val] of Object.entries(value as AnyObject)) {
-      result[key] = sanitizePayloadDeep(val);
-    }
-    return result as T;
-  }
-  if (typeof value === "string") {
-    return sanitizeText(value) as unknown as T;
-  }
-  return value;
+function buildTrackUpsertPayload(sanitizedBody: Body) {
+  const cleanSpotifyId = sanitizeText(sanitizedBody.spotify_track_id);
+  const cleanTitle = sanitizeText(sanitizedBody.title);
+  const cleanArtist = sanitizeText(sanitizedBody.artist);
+  // 画像 URL は http/https のみ許可。妥当でなければ null。
+  const cleanImage = sanitizeUrl(sanitizedBody.album_image_url);
+
+  return {
+    spotify_track_id: cleanSpotifyId,
+    title: cleanTitle,
+    artist: cleanArtist,
+    album_image_url: cleanImage,
+  };
 }
 
-function detectNonAscii(value: unknown, path: string[] = []): void {
-  if (typeof value === "string") {
-    const codes: number[] = [];
-    for (const ch of value) {
-      const code = ch.codePointAt(0) ?? 0;
-      if (code > 0x7f) codes.push(code);
-    }
-    if (codes.length > 0) {
-      console.warn(
-        `[listens] Non-ASCII detected at ${path.join(".") || "<root>"}: ${codes.join(", ")}`
-      );
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((item, idx) => detectNonAscii(item, [...path, String(idx)]));
-    return;
-  }
-  if (value && typeof value === "object") {
-    Object.entries(value as AnyObject).forEach(([key, val]) =>
-      detectNonAscii(val, [...path, key])
-    );
-  }
+function parseListenFields(sanitizedBody: Body) {
+  const sanitizedPlayedAt = sanitizeText(sanitizedBody.played_at);
+  const sanitizedSpotifyPlayedAt = sanitizeText(sanitizedBody.spotify_played_at);
+  const lat = Number(sanitizedBody.lat);
+  const lng = Number(sanitizedBody.lng);
+  const nDur = Number(sanitizedBody.duration_ms);
+  const mood =
+    typeof sanitizedBody.mood === "string" ? sanitizeText(sanitizedBody.mood) : null;
+  const mood_note =
+    typeof sanitizedBody.mood_note === "string" ? sanitizeText(sanitizedBody.mood_note) : null;
+
+  return { sanitizedPlayedAt, sanitizedSpotifyPlayedAt, lat, lng, nDur, mood, mood_note };
 }
+
+function buildListenRow(
+  track_id: string,
+  base: ReturnType<typeof parseListenFields>,
+  weather: {
+    weather_main: string | null;
+    weather_description: string | null;
+    weather_temp_c: number | null;
+  },
+) {
+  return {
+    track_id,
+    played_at: base.sanitizedPlayedAt,
+    spotify_played_at: base.sanitizedSpotifyPlayedAt,
+    duration_ms: Number(base.nDur),
+    lat: base.lat,
+    lng: base.lng,
+    mood: base.mood,
+    mood_note: base.mood_note,
+    weather_main: weather.weather_main,
+    weather_description: weather.weather_description,
+    weather_temp_c: weather.weather_temp_c,
+    // user_id は Auth 導入後に
+  };
+}
+
 
 // ★ OpenWeatherMap から現在の天気を取得するヘルパー
 async function fetchWeatherFromOpenWeather(lat: number, lng: number) {
@@ -213,7 +168,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  let body: Record<string, unknown>;
+  let body: Body;
   try {
     body = await req.json();
   } catch {
@@ -230,26 +185,12 @@ export async function POST(req: NextRequest) {
     "lat",
     "lng",
   ];
-  for (const k of required) {
-    if (body[k] === undefined || body[k] === null || body[k] === "") {
-      return json({ error: `Missing field: ${k}` }, 400);
-    }
-  }
+  const requiredError = getRequiredFieldError(body, required);
+  if (requiredError) return json({ error: requiredError }, 400);
 
   const sanitizedBody = sanitizePayloadDeep(body);
 
-  const cleanSpotifyId = sanitizeText(sanitizedBody.spotify_track_id);
-  const cleanTitle = sanitizeText(sanitizedBody.title);
-  const cleanArtist = sanitizeText(sanitizedBody.artist);
-  // 画像 URL は http/https のみ許可。妥当でなければ null。
-  const cleanImage = sanitizeUrl(sanitizedBody.album_image_url);
-
-  const trackUpsertPayload = {
-    spotify_track_id: cleanSpotifyId,
-    title: cleanTitle,
-    artist: cleanArtist,
-    album_image_url: cleanImage,
-  };
+  const trackUpsertPayload = buildTrackUpsertPayload(sanitizedBody);
 
   // TODO: ログが多い場合は後でフィルタリングを検討
   detectNonAscii(trackUpsertPayload, ["tracks"]);
@@ -264,18 +205,7 @@ export async function POST(req: NextRequest) {
   if (upErr) return json({ error: `tracks upsert failed: ${upErr.message}` }, 500);
   const track_id = upserted!.id;
 
-  const sanitizedPlayedAt = sanitizeText(sanitizedBody.played_at);
-  const sanitizedSpotifyPlayedAt = sanitizeText(sanitizedBody.spotify_played_at);
-
-  // ★ lat/lng を number として取り出す
-  const lat = Number(sanitizedBody.lat);
-  const lng = Number(sanitizedBody.lng);
-
-  // ★ mood / mood_note も安全に取り出す
-  const mood =
-    typeof sanitizedBody.mood === "string" ? sanitizeText(sanitizedBody.mood) : null;
-  const mood_note =
-    typeof sanitizedBody.mood_note === "string" ? sanitizeText(sanitizedBody.mood_note) : null;
+  const base = parseListenFields(sanitizedBody);
 
   // ★ 天気用の変数を用意（デフォルトは null）
   let weather_main: string | null = null;
@@ -283,8 +213,8 @@ export async function POST(req: NextRequest) {
   let weather_temp_c: number | null = null;
 
   // ★ lat/lng がちゃんと数値で、APIキーもあるときだけ天気を取りに行く
-  if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
-    const weather = await fetchWeatherFromOpenWeather(lat, lng);
+  if (!Number.isNaN(base.lat) && !Number.isNaN(base.lng)) {
+    const weather = await fetchWeatherFromOpenWeather(base.lat, base.lng);
     if (weather) {
       weather_main = weather.weather_main;
       weather_description = weather.weather_description;
@@ -292,29 +222,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const nDur = Number(sanitizedBody.duration_ms);
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (!Number.isFinite(base.lat) || !Number.isFinite(base.lng)) {
     return json({ error: "lat/lng must be finite numbers" }, 400);
   }
-  if (!Number.isFinite(nDur) || nDur < 0) {
+  if (!Number.isFinite(base.nDur) || base.nDur < 0) {
     return json({ error: "duration_ms must be a non-negative number" }, 400);
   }
 
-  const listenRow = {
-    track_id,
-    played_at: sanitizedPlayedAt,
-    spotify_played_at: sanitizedSpotifyPlayedAt,
-    duration_ms: Number(sanitizedBody.duration_ms),
-    lat,
-    lng,
-    mood,
-    mood_note,
+  const listenRow = buildListenRow(track_id, base, {
     weather_main,
     weather_description,
     weather_temp_c,
-    // user_id は Auth 導入後に
-  };
+  });
 
   detectNonAscii(listenRow, ["listens"]);
 

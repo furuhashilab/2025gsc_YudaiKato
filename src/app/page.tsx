@@ -2,36 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TrackCard } from "@/components/TrackCard";
-
-type RecentItem = {
-  spotify_track_id: string;
-  title: string;
-  artist: string;
-  album_image_url: string | null;
-  played_at: string;
-  duration_ms: number;
-};
-
-type RecentResponse =
-  | { ok: true; items: RecentItem[] }
-  | { ok: false; error: string; status: number };
-
-type ListenItem = {
-  id: string;
-  spotify_track_id: string;
-  played_at: string;
-  spotify_played_at: string | null;
-  title: string;
-  artist: string;
-  album_image_url: string | null;
-  duration_ms: number;
-  mood: string | null;
-  mood_note?: string | null;
-};
-
-type ListenResponse =
-  | { ok: true; items: ListenItem[] }
-  | { ok: false; error: string; status: number };
+import type { ListenItem, ListenResponse, RecentItem, RecentResponse } from "@/types/listen";
 
 async function fetchRecent(): Promise<RecentResponse> {
   const res = await fetch("/api/spotify/recent", { cache: "no-store" });
@@ -60,8 +31,6 @@ async function fetchListens(): Promise<ListenResponse> {
 }
 
 export default function Home() {
-  // 一時的にポーリングの挙動を可視化する。不要になったので false。
-  const DEBUG_RECENT_POLL = false;
   const SAVE_LOCK_KEY = "mwm-last-saved";
 
   const [recent, setRecent] = useState<RecentResponse | null>(null);
@@ -101,7 +70,6 @@ export default function Home() {
     },
     [normalizeId],
   );
-  const lastTrackIdRef = useRef<string | null>(null);
   const currentTrackStartRef = useRef<{ trackId: string; startIso: string } | null>(null);
   const lastSavedRecentKeyRef = useRef<string | null>(null);
   const savingRecentKeyRef = useRef<string | null>(null);
@@ -116,18 +84,10 @@ export default function Home() {
     const nextMap = new Map<string, ListenItem>();
     result.items.forEach((it) => {
       if (!it.spotify_track_id) {
-        if (DEBUG_RECENT_POLL) {
-          // eslint-disable-next-line no-console
-          console.log("[listens] skip: missing spotify_track_id", it);
-        }
         return;
       }
       const spotifyPlayedAt = normalizeDateStr(it.spotify_played_at ?? it.played_at ?? "");
       if (!spotifyPlayedAt) {
-        if (DEBUG_RECENT_POLL) {
-          // eslint-disable-next-line no-console
-          console.log("[listens] skip: missing spotify_played_at", it);
-        }
         return;
       }
       const key = buildPinnedKey(it.spotify_track_id, spotifyPlayedAt);
@@ -139,20 +99,11 @@ export default function Home() {
     pinnedSetRef.current = next;
     pinnedMapRef.current = nextMap;
     setListensReady(true);
-    if (DEBUG_RECENT_POLL) {
-      // eslint-disable-next-line no-console
-      console.log("[listens] mapped", next.size, "keys", Array.from(next).slice(0, 5));
-    }
   }, [buildPinnedKey]);
 
-  const logRecent = useCallback(
-    (...args: unknown[]) => {
-      if (!DEBUG_RECENT_POLL) return;
-      // eslint-disable-next-line no-console
-      console.log("[recent-poll]", ...args);
-    },
-    [DEBUG_RECENT_POLL],
-  );
+  const refreshListens = useCallback(() => {
+    void loadListens();
+  }, [loadListens]);
 
   const saveWithGeolocation = useCallback(
     async (
@@ -185,7 +136,6 @@ export default function Home() {
           Number.isFinite(nextTs) &&
           Math.abs(prevTs - nextTs) < trackWindowMs
         ) {
-          logRecent("skip save: track saved recently", payload.spotify_track_id, normalizedSpotifyAt);
           return false;
         }
       }
@@ -202,11 +152,9 @@ export default function Home() {
             typeof parsed?.ts === "number" &&
             now - parsed.ts < windowMs
           ) {
-            logRecent("skip save: local lock track", payload.spotify_track_id);
             return false;
           }
           if (parsed?.key === key && typeof parsed?.ts === "number" && now - parsed.ts < windowMs) {
-            logRecent("skip save: local lock key", key);
             return false;
           }
         }
@@ -214,30 +162,16 @@ export default function Home() {
         // 失敗しても続行
       }
 
-      if (savingRecentKeyRef.current === key) {
-        logRecent("skip save: already processing", key);
-        return false;
-      }
-      if (lastSavedRecentKeyRef.current === key) {
-        logRecent("skip save: last saved key match", key);
-        return false;
-      }
+      if (savingRecentKeyRef.current === key) return false;
+      if (lastSavedRecentKeyRef.current === key) return false;
       if (pinnedSetRef.current.has(key)) {
         lastSavedRecentKeyRef.current = key;
-        logRecent("skip save: already saved", key);
         return false;
       }
-      if (hasNearbyListen(payload.spotify_track_id, payload.spotify_played_at)) {
-        logRecent("skip save: nearby listen exists", key);
-        return false;
-      }
-      if (!("geolocation" in navigator)) {
-        logRecent("skip save: geolocation unavailable", label);
-        return false;
-      }
+      if (hasNearbyListen(payload.spotify_track_id, payload.spotify_played_at)) return false;
+      if (!("geolocation" in navigator)) return false;
 
       savingRecentKeyRef.current = key;
-      logRecent("try save", label, key, payload.title);
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
           navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -259,7 +193,6 @@ export default function Home() {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !(json as any)?.ok) {
-          logRecent("save failed", res.status, (json as any)?.error, payload);
           console.error("[recent save] failed", res.status, (json as any)?.error);
           return false;
         }
@@ -277,7 +210,6 @@ export default function Home() {
         } catch {
           // ignore
         }
-        logRecent("save success", key);
         await loadListens();
         if (newRecentItem) {
           setRecent((prev) => {
@@ -291,14 +223,13 @@ export default function Home() {
         }
         return true;
       } catch (e) {
-        logRecent("save error", e);
         console.error("[recent save] error", e);
         return false;
       } finally {
         savingRecentKeyRef.current = null;
       }
     },
-    [buildPinnedKey, hasNearbyListen, loadListens, logRecent],
+    [buildPinnedKey, hasNearbyListen, loadListens],
   );
 
   const loadRecent = useCallback(async () => {
@@ -307,15 +238,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    loadListens();
-  }, [loadListens]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      loadListens();
-    }, 15000);
+    refreshListens();
+    const timer = setInterval(refreshListens, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [loadListens]);
+  }, [POLL_INTERVAL_MS, refreshListens]);
 
   useEffect(() => {
     loadRecent().catch((e) => console.error("[recent] fetch error", e));
@@ -384,7 +310,6 @@ export default function Home() {
           );
         }
 
-        lastTrackIdRef.current = data.trackId;
         if (!cancelled) {
           await loadListens();
         }
@@ -405,18 +330,18 @@ export default function Home() {
 
   useEffect(() => {
     const onFocus = () => {
-      loadListens();
+      refreshListens();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [loadListens]);
+  }, [refreshListens]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
     const channel = new BroadcastChannel("listens-updated");
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "listens-updated") {
-        loadListens();
+        refreshListens();
       }
     };
     channel.addEventListener("message", onMessage);
@@ -424,7 +349,7 @@ export default function Home() {
       channel.removeEventListener("message", onMessage);
       channel.close();
     };
-  }, [loadListens]);
+  }, [refreshListens]);
 
   if (!recent) {
     return (

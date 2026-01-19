@@ -36,6 +36,40 @@ function colorByMood(m?: string | null) {
   }
 }
 
+function formatWeatherLine(it: ListenItem) {
+  if (!it.weather_main) return "天気: 取得なし";
+  const weatherDescription = it.weather_description ? ` (${it.weather_description})` : "";
+  const weatherTemp =
+    typeof it.weather_temp_c === "number" && Number.isFinite(it.weather_temp_c)
+      ? ` ${it.weather_temp_c.toFixed(1)}℃`
+      : "";
+  return `天気: ${it.weather_main}${weatherDescription}${weatherTemp}`;
+}
+
+function buildPopupHtml(it: ListenItem) {
+  const moodLine = it.mood
+    ? `<span style="font-size:12px;color:#444">mood: ${it.mood}${
+        it.mood === "other" && it.mood_note ? ` — ${it.mood_note}` : ""
+      }</span>`
+    : "";
+  const imageHtml = it.album_image_url
+    ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>`
+    : "";
+  const weatherLine = formatWeatherLine(it);
+
+  return `
+    <div style="min-width:220px">
+      ${imageHtml}
+      <div style="margin-top:8px">
+        <strong style="color:#0f172a">${it.title}</strong><br/>
+        <span style="color:#1f2937">${it.artist}</span><br/>
+        <span style="color:#777;font-size:12px">${new Date(it.played_at).toLocaleString()}</span><br/>
+        ${moodLine}
+        <div style="font-size:12px;color:#444;margin-top:4px">${weatherLine}</div>
+      </div>
+    </div>`;
+}
+
 export default function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -68,6 +102,35 @@ export default function MapPage() {
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error ?? "fetch failed");
     setItems((json.items ?? []) as ListenItem[]);
+  }, []);
+
+  const clearMarkers = () => {
+    openPopupRef.current?.remove();
+    openPopupRef.current = null;
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+    markerMapRef.current = {};
+  };
+
+  const focusMarker = useCallback((it: ListenItem) => {
+    const map = mapRef.current;
+    const marker = markerMapRef.current[it.id];
+    if (!map) return;
+    map.flyTo({
+      center: [it.lng, it.lat],
+      zoom: 14,
+      essential: true,
+    });
+    if (marker) {
+      const popup = marker.getPopup();
+      if (popup) {
+        if (openPopupRef.current && openPopupRef.current !== popup) {
+          openPopupRef.current.remove();
+        }
+        popup.setLngLat(marker.getLngLat()).addTo(map);
+        openPopupRef.current = popup;
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -107,11 +170,7 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
-      openPopupRef.current?.remove();
-      openPopupRef.current = null;
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-      markerMapRef.current = {};
+      clearMarkers();
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -148,11 +207,7 @@ export default function MapPage() {
     if (!map || !items.length) return;
 
     // 既存マーカーを削除
-    openPopupRef.current?.remove();
-    openPopupRef.current = null;
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
-    markerMapRef.current = {};
+    clearMarkers();
 
     const filtered = items.filter((it) => {
       const mood = it.mood ?? "other";
@@ -179,49 +234,7 @@ export default function MapPage() {
         it.lat,
       ]);
 
-      const hasWeather = !!it.weather_main;
-      const weatherTemp =
-        typeof it.weather_temp_c === "number" &&
-        Number.isFinite(it.weather_temp_c)
-          ? `${it.weather_temp_c.toFixed(1)}℃`
-          : "";
-      const weatherDescription = it.weather_description
-        ? ` (${it.weather_description})`
-        : "";
-      const weatherLine = hasWeather
-        ? `天気: ${it.weather_main}${weatherDescription}${
-            weatherTemp ? ` ${weatherTemp}` : ""
-          }`
-        : "天気: 取得なし";
-
-      const popupHtml = `
-        <div style="min-width:220px">
-          ${
-            it.album_image_url
-              ? `<img src="${it.album_image_url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;"/>`
-              : ""
-          }
-          <div style="margin-top:8px">
-            <strong style="color:#0f172a">${it.title}</strong><br/>
-            <span style="color:#1f2937">${it.artist}</span><br/>
-            <span style="color:#777;font-size:12px">${new Date(
-              it.played_at,
-            ).toLocaleString()}</span><br/>
-            ${
-              it.mood
-                ? `<span style="font-size:12px;color:#444">mood: ${
-                    it.mood
-                  }${
-                    it.mood === "other" && it.mood_note
-                      ? ` — ${it.mood_note}`
-                      : ""
-                  }</span>`
-                : ""
-            }
-            <div style="font-size:12px;color:#444;margin-top:4px">${weatherLine}</div>
-          </div>
-        </div>`;
-      const popup = new Popup({ offset: 12 }).setHTML(popupHtml);
+      const popup = new Popup({ offset: 12 }).setHTML(buildPopupHtml(it));
       popup.on("open", () => {
         if (openPopupRef.current && openPopupRef.current !== popup) {
           openPopupRef.current.remove();
@@ -408,26 +421,7 @@ export default function MapPage() {
                   flexDirection: "column",
                   gap: 8,
                 }}
-                onClick={() => {
-                  const map = mapRef.current;
-                  const marker = markerMapRef.current[it.id];
-                  if (!map) return;
-                  map.flyTo({
-                    center: [it.lng, it.lat],
-                    zoom: 14,
-                    essential: true,
-                  });
-                  if (marker) {
-                    const popup = marker.getPopup();
-                    if (popup) {
-                      if (openPopupRef.current && openPopupRef.current !== popup) {
-                        openPopupRef.current.remove();
-                      }
-                      popup.setLngLat(marker.getLngLat()).addTo(map);
-                      openPopupRef.current = popup;
-                    }
-                  }
-                }}
+                onClick={() => focusMarker(it)}
               >
                 {it.album_image_url ? (
                   <div
