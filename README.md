@@ -18,28 +18,4 @@
 
 ---
 
-## 開発環境メモ
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-### Getting Started
-
-開発サーバーの起動:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-ブラウザで [http://localhost:3000](http://localhost:3000) にアクセスするとアプリが確認できます。
-
-`app/page.tsx` を編集するとページが自動で更新されます。
-
-
-### Deploy on Vercel
-
-最終的にはVercelを使ったデプロイを実施予定。
