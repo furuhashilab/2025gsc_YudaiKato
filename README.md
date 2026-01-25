@@ -9,14 +9,26 @@
 
 ## Method
 ### システム概要
-
 プロトタイプは、
-1. Spotify APIから再生履歴を取得し表示する機能
-2. 再生単位でユーザーが気分（mood）を登録する機能
-3. 聴取履歴を地図上にピンとして可視化する機能
+Spotify APIから再生履歴を取得し表示する機能
+再生単位でユーザーが気分（mood）を登録する機能
+聴取履歴を地図上にピンとして可視化する機能
+から構成される。 フロントエンドは Next.js（App Router）で実装し、サーバ側のAPIルートでSpotify APIとの通信やデータアクセスを集約することで、クライアントからの外部サービス依存を最小化した。データベースには Supabase（PostgreSQL）を用い、聴取履歴（listens）と付随情報（mood、位置、時刻、天気）を保存する。地図表示には MapLibreを用い、聴取履歴をピンとして可視化する。
 
-から構成される。
-フロントエンドはNext.js（App Router）で実装し、聴取履歴の永続化にはSupabase（PostgreSQL）を用いた。地図表示にはMapbox/MapLibre系ライブラリを用い、履歴と紐づく位置情報を地図上に提示するUIを実装した。
+### Spotifyログイン
+ユーザーが /api/spotify/login にアクセスするとPKCEが生成され、Spotifyの認可画面へリダイレクトされる。認可後、/api/spotify/callback でアクセストークンとリフレッシュトークンを取得し、Cookieに保存する。
+
+### 楽曲情報取得
+page.tsx で /api/spotify/currently-playing を15秒間隔でポーリングし、新しい再生が検知されると保存候補を作成する。続いてクライアント側で navigator.geolocation から緯度・経度を取得し、サーバ側 route.ts が OpenWeatherMap を呼び出して天気情報を取得する。
+
+### DB保存（Supabase）
+保存フローで得た情報をSupabaseに記録する。具体的には、tracks テーブルに spotify_track_id をキーとして楽曲情報を upsert し、listens テーブルには位置情報・再生時刻・mood・天気などを保存する。各再生を識別するため、取得した再生状況と取得時刻を同一再生ログを識別するためのキー情報として用いる。
+
+### 保存後の地図描画フロー
+保存が完了すると、クライアントは /api/listens から最新の聴取ログを取得し、Map表示に反映する。取得した listens には lat/lon や mood を含むため、クライアント側でmoodフィルタの状態に応じて表示対象を絞り込み、MapLibre上でマーカーを生成する。マーカーはmoodに応じた色分けを行い、クリック時には曲情報・再生時刻・天気等を含むポップアップを表示する。初回描画時には全マーカーが収まるよう fitBounds で表示範囲を調整し、サイドリストから選択した場合は対応マーカーへズームして強調表示する。
+
+
+
 ## Result
 
 ## Discusstion
