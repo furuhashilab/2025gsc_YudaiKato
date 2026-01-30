@@ -17,6 +17,8 @@
 ### 2.2 Spotify認証
 /api/spotify/login でPKCE（code_verifier / code_challenge）とstate を生成してSpotify 認可画面へリダイレクトし、/api/spotify/callback で認可コードをアクセストークン・リフレッシュトークンに交換する。トークン類はHTTP Only Cookie として保存され、以降のSpotify API 呼び出し（例：/api/spotify/recent）はサーバ側ルートがCookie のアクセストークンを参照して代理実行する。
 
+![spotify](https://github.com/user-attachments/assets/e1d106f1-3aab-42b7-9ccb-a8ef4cf68dc1)
+
 ### 2.3 再生履歴の取得と自動保存
 ホーム画面（src/app/page.tsx）は以下を行う。
 1. /api/spotify/recent から直近の再生履歴（最大50件）を取得して表示する。
@@ -27,10 +29,14 @@
 4. 保存時にはnavigator.geolocation.getCurrentPosition で緯度経度を取得し、/api/listens
 (POST) へ送信する。
 
+![home](https://github.com/user-attachments/assets/d099cc6a-cc20-422f-a256-e3d798a1fac4)
+
 重複保存を避けるため、(a) 同一トラックの近傍時刻判定、(b) 保存キーの共有（localStorage）によるタブ間ロック、(c) サーバ側の簡易重複排除（同一track_id× 同一spotify_played_at×近傍座標）を併用している。
 
 ### 2.4 天気取得とDB 保存（Supabase）
 /api/listens (POST) は入力をサニタイズした上で、tracks を spotify_track_id で upsertし、取得した track_id を用いて listens へ挿入する。また、OPENWEATHER_API_KEY が設定され、かつ緯度経度が妥当な場合に OpenWeatherMap の現在天気 API を呼び出し、代表的な値（weather_main, weather_description, weather_temp_c）を listens へ格納する。
+
+![supabase](https://github.com/user-attachments/assets/5c399116-73d2-4da2-a025-1e9ce3f3b8ea)
 
 ### 2.5 地図可視化（MapLibre）
 地図画面（src/app/map/page.tsx）は/api/listens から取得したログをマーカーとして描画する。
@@ -41,9 +47,14 @@
 - 初期表示：全マーカーが収まるようfitBounds
 - サイドリスト：クリックで該当地点へflyTo し、ポップアップを開く
 
+![map](https://github.com/user-attachments/assets/2dd94aa6-b10e-4916-95d4-7d3483539e72)
+
+
 ### 2.6 集計（mood× 天気× 時間帯）
 統計画面（src/app/stats/page.tsx） は/api/stats を呼び出し、listens からmood とweather_main（およびplayed_at から推定した時間帯）を用いて件数集計を表示する。
 実装上は、Supabase から必要列を取得した後、サーバ側でMap 集計を行う（単純だがデータ量増大時には改善余地がある）。
+
+![status](https://github.com/user-attachments/assets/5cec2227-bd04-4443-b0b7-17826d3d22fa)
 
 
 ## 3. Result
