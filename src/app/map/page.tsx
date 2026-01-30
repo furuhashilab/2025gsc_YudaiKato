@@ -461,6 +461,7 @@ export default function MapPage() {
                     style={{
                       fontSize: 13,
                       fontWeight: 600,
+                      color: "#0f172a",
                       margin: 0,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
