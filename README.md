@@ -22,8 +22,7 @@
 ### 2.3 再生履歴の取得と自動保存
 ホーム画面（src/app/page.tsx）は以下を行う。
 1. /api/spotify/recent から直近の再生履歴（最大50件）を取得して表示する。
-2. /api/listens から保存済みログを取得し、再生履歴と突合して「保存済み」状態（ピン留め相
-当）を管理する。
+2. /api/listens から保存済みログを取得し、再生履歴と突合、ホーム画面において任意のmoodを入力し「保存済み」状態（ピン留め相当）を管理する。
 3. /api/spotify/currently-playing を15秒間隔でポーリングし、再生中トラックが検知され
 ると保存処理を試行する。
 4. 保存時にはnavigator.geolocation.getCurrentPosition で緯度経度を取得し、/api/listens
