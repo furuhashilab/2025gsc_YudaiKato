@@ -10,7 +10,7 @@
 ## 2. Method
 ### 2.1 全体概要
 実装はNext.js（App Router）を基盤とし、クライアント（UI）とサーバ（API Routes）で責務を分離している。
-また、実装はGPT-5.2-Codexを用いてバイブコーディングにて実施している。
+また、実装はGPT-5.1-CodexおよびGPT-5.2-Codexを用いてバイブコーディングにて実施している。
 
 - クライアント：再生履歴表示、再生中トラック検知（ポーリング）、位置情報取得、地図表示、moodフィルタ、集計表示
 - Spotify OAuth（PKCE）処理、Spotify API プロキシ、Supabase への保存・更新・取得、OpenWeatherMap 呼び出し、集計API
